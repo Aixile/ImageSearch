@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<classpath>
+	<classpathentry kind="src" path="src"/>
+	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/JavaSE-1.8"/>
+	<classpathentry kind="lib" path="/usr/share/hadoop/common/hadoop-common.jar"/>
+	<classpathentry kind="lib" path="/usr/share/hadoop/common/hadoop-nfs.jar"/>
+	<classpathentry kind="lib" path="/usr/share/hadoop/mapreduce/hadoop-mapreduce-client-app.jar"/>
+	<classpathentry kind="lib" path="/usr/share/hadoop/mapreduce/hadoop-mapreduce-client-common.jar"/>
+	<classpathentry kind="lib" path="/usr/share/hadoop/mapreduce/hadoop-mapreduce-client-core.jar"/>
+	<classpathentry kind="lib" path="/usr/share/hadoop/mapreduce/hadoop-mapreduce-client-hs.jar"/>
+	<classpathentry kind="lib" path="/usr/share/hadoop/mapreduce/hadoop-mapreduce-client-hs-plugins.jar"/>
+	<classpathentry kind="lib" path="/usr/share/hadoop/mapreduce/hadoop-mapreduce-client-jobclient.jar"/>
+	<classpathentry kind="lib" path="/usr/share/hadoop/mapreduce/hadoop-mapreduce-client-shuffle.jar"/>
+	<classpathentry kind="lib" path="/usr/share/hadoop/hdfs/hadoop-hdfs.jar"/>
+	<classpathentry kind="lib" path="/usr/share/hadoop/hdfs/hadoop-hdfs-nfs.jar"/>
+	<classpathentry kind="lib" path="/usr/share/hadoop/yarn/hadoop-yarn-api.jar"/>
+	<classpathentry kind="lib" path="/usr/share/hadoop/yarn/hadoop-yarn-applications-distributedshell.jar"/>
+	<classpathentry kind="lib" path="/usr/share/hadoop/yarn/hadoop-yarn-applications-unmanaged-am-launcher.jar"/>
+	<classpathentry kind="lib" path="/usr/share/hadoop/yarn/hadoop-yarn-client.jar"/>
+	<classpathentry kind="lib" path="/usr/share/hadoop/yarn/hadoop-yarn-common.jar"/>
+	<classpathentry kind="lib" path="/usr/share/hadoop/yarn/hadoop-yarn-server-applicationhistoryservice.jar"/>
+	<classpathentry kind="lib" path="/usr/share/hadoop/yarn/hadoop-yarn-server-common.jar"/>
+	<classpathentry kind="lib" path="/usr/share/hadoop/yarn/hadoop-yarn-server-nodemanager.jar"/>
+	<classpathentry kind="lib" path="/usr/share/hadoop/yarn/hadoop-yarn-server-resourcemanager.jar"/>
+	<classpathentry kind="lib" path="/usr/share/hadoop/yarn/hadoop-yarn-server-web-proxy.jar"/>
+	<classpathentry kind="lib" path="/usr/share/hadoop/common/lib/commons-logging-1.1.3.jar"/>
+	<classpathentry kind="output" path="bin"/>
+</classpath>
