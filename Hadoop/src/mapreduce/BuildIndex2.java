@@ -1,4 +1,4 @@
-package image.search;
+package mapreduce;
 
 import java.io.BufferedReader;
 import java.io.FileReader;
@@ -24,17 +24,18 @@ import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.Reducer;
 import org.apache.hadoop.mapreduce.Mapper.Context;
+import org.apache.hadoop.mapreduce.lib.input.TextInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.util.Tool;
 
 
-public class BuildIndex  extends Configured implements Tool  {
+public class BuildIndex2  extends Configured implements Tool  {
 	private static int k=10;
-	private static Log log=LogFactory.getLog(BuildIndex.class);
+	private static Log log=LogFactory.getLog(BuildIndex2.class);
+	private static int level=10;
 	
 	
-	
-	public static class ClusterMapper extends Mapper<LongWritable,BytesWritable,IntWritable,IntArrayWritable>{
+	public static class ClusterMapper extends Mapper<LongWritable,Text,IntWritable,IntArrayWritable>{
 		//private final static IntWritable one=new IntWritable(1);
 		
 	//	Vector<byte[]> centers=new Vector<byte[]>(); 
@@ -61,16 +62,19 @@ public class BuildIndex  extends Configured implements Tool  {
 						}
 						centers.add(t);
 					}
+					int ans=k;
+					for(int i=0;i<level;i++) ans*=k;
 					br.close();
-					if(centers.size()!=k){
+					if(centers.size()!=ans){
 						log.info("Center file not match:"+centers.size());
+						log.info("Center file expect:"+ans);
 						System.exit(1);
 					//	throw(new KMeansException("Center File Size Not match"));
 					}
 		}
 		
 		@Override
-		public void map(LongWritable key,BytesWritable value,Context context) throws IOException, InterruptedException{
+		public void map(LongWritable key,Text value,Context context) throws IOException, InterruptedException{
 			log.info("Mapper start");
 			byte[] b=value.getBytes();
 			
@@ -83,20 +87,32 @@ public class BuildIndex  extends Configured implements Tool  {
 		
 			IntWritable iw[]=new IntWritable[136];
 			
+			String[] str=value.toString().split("\\s+");
+			
+			
 			for(int i=0;i<128;i++){
-				ints[i]=b[i+8]&0xFF;
+				ints[i]=Integer.parseInt(str[i+3]);
 				iw[i]=new IntWritable(ints[i]);
 			}
 			
 			for(int i=0;i<8;i++){
 				//log.info(b[i]);
-				ints[i+128]=b[i]&0xFF;
+				
+				int hv=0,lv=0;
+				char hc=str[2].charAt(i*2),lc=str[2].charAt(i*2+1);
+				if(hc>='a'&&hc<='f') 	hv=10+hc-'a';
+				else hv=hc-'0';
+				if(lc>='a'&&lc<='f') 	lv=10+lc-'a';
+				else lv=lc-'0';
+				
+				ints[135-i]=hv*16+lv;
+				
 			//	log.info(ints[i+128]);
-				iw[i+128]=new IntWritable(ints[i+128]);
+				iw[135-i]=new IntWritable(ints[135-i]);
 			}
 			
-			
-			for(int i=0;i<k;i++){
+			int pos=Integer.parseInt(str[0]);
+			for(int i=pos*k;i<(pos+1)*k;i++){
 				int ans=0;
 				for(int j=0;j<128;j++){
 					int q=centers.get(i)[j];
@@ -163,25 +179,43 @@ public class BuildIndex  extends Configured implements Tool  {
 	public int run(String[] args) throws Exception{
 		Configuration conf=getConf();
 		FileSystem fs=FileSystem.get(conf);
-		Job job=Job.getInstance(conf,"BuildIndex "+args[2]);
+		Job job=Job.getInstance(conf,"BuildIndex2 "+args[2]);
+		
+		level=Integer.parseInt(args[3]);
+		
 		if(args.length>=5) 	k=Integer.parseInt(args[4]);
 		
 		
 		job.addCacheFile((new Path(args[1])).toUri());
 		
-		job.setJarByClass(BuildIndex.class);
+		job.setJarByClass(BuildIndex2.class);
 		job.setMapperClass(ClusterMapper.class);
 		job.setReducerClass(BuildIndexReducer.class);
 		job.setMapOutputKeyClass(IntWritable.class);
 		job.setMapOutputValueClass(IntArrayWritable.class);
 	
+		
+		
+		int cc=k;
+		for(int t=0;t<level-1;t++){
+			cc*=k;
+		}	
+		String o=HKM.OutputPrefix+"/indexd"+String.valueOf(level-1);
+		for(int i=0;i<cc;i++){
+			TextInputFormat.addInputPath(job, new Path(o+"/index"+String.valueOf(i)+"-r-00000"));
+		}
+		job.setInputFormatClass(TextInputFormat.class);
+		
+		
 		job.setOutputKeyClass(IntWritable.class);
 		job.setOutputValueClass(Text.class);
 		
+		
+	/*	
 		CustomFixedLengthInputFormat.addInputPath(job, new Path(args[0]));
-		job.setInputFormatClass(CustomFixedLengthInputFormat.class);
+		job.setInputFormatClass(CustomFixedLengthInputFormat.class);*/
 		FileOutputFormat.setOutputPath(job, new Path(args[2]));
-		for(int i=0;i<k;i++){
+		for(int i=0;i<cc*k;i++){
 			MultipleOutputs.addNamedOutput(job,"index"+String.valueOf(i), TextOutputFormat.class, IntWritable.class, Text.class);
 		}
 		

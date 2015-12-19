@@ -1,4 +1,4 @@
-package image.search;
+package mapreduce;
 import org.apache.hadoop.fs.Path;
 
 import java.io.IOException;

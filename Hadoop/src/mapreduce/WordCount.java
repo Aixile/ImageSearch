@@ -1,4 +1,4 @@
-package image.search;
+package mapreduce;
 
 
 import java.io.IOException;

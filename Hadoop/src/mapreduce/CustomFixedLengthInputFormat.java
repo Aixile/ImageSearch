@@ -1,8 +1,7 @@
-package image.search;
+package mapreduce;
 
 import java.io.IOException;
 
-import javax.swing.text.html.HTMLDocument.Iterator;
 
 import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.io.LongWritable;
