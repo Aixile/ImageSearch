@@ -8,6 +8,8 @@ import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.net.URI;
 import java.nio.file.Files;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Vector;
 
 import org.apache.commons.logging.Log;
@@ -35,14 +37,13 @@ public class HKM extends Configured implements Tool {
 	private static int IterationLimit=6;
 	private static int MaxDepth=3;
 	//private static double THRESHOLD=70;
-	private static int k=10;
-	public static int level=0;
+	//public static int level=0;
 	private static int itr=0;
-	public static String OutputPrefix="";
+	private static String OutputPrefix="";
 	private static String CenterPrefix="";
 	
 	private static Log log=LogFactory.getLog(HKM.class);
-	public static Boolean ReachLeaf=false;
+	//public static Boolean ReachLeaf=false;
 	
 	public static class KMeansException extends Exception{
 		/**
@@ -56,16 +57,20 @@ public class HKM extends Configured implements Tool {
 	}
 	
 	
-	public static class ClusterMapper extends Mapper<LongWritable,Text,IntWritable,IntArrayWritable>{
+	public static class ClusterMapper extends Mapper<LongWritable,Text,IntWritable,LongArrayWritable>{
 		//private final static IntWritable one=new IntWritable(1);
 		
 	//	Vector<byte[]> centers=new Vector<byte[]>(); 
-		Vector<int[]> centers=new Vector<int[]>();
+		Vector<long[]> centers=new Vector<long[]>();
+		int k;
+		int level;
 		@Override
 		public void setup(Context context) throws IOException{
 
 					log.info("Mapper setup start");
-	
+					k=context.getConfiguration().getInt("k",10);
+					level=context.getConfiguration().getInt("level", 0);
+					
 					URI[] cache=context.getCacheFiles();
 					if(cache == null || cache.length <=0) System.exit(1);
 					Path cp=new Path(cache[0]);
@@ -76,12 +81,13 @@ public class HKM extends Configured implements Tool {
 					String line;
 					while((line=br.readLine()) != null){
 						String[] str = line.split("\\s+");
-						int[] t=new int[130];
+						long[] t=new long[130];
 						for(int i=2;i<str.length;i++){
 							t[i-2]=Integer.parseInt(str[i]);
 						}
 						centers.add(t);
 					}
+					
 					int ans=k;
 					for(int i=0;i<level;i++) ans*=k;
 					br.close();
@@ -95,22 +101,22 @@ public class HKM extends Configured implements Tool {
 		
 		@Override
 		public void map(LongWritable key,Text value,Context context) throws IOException, InterruptedException{
-			log.info("Mapper start");
+		//	log.info("Mapper start");
 			
-			log.info(centers.size());
-			int maxdist=Integer.MAX_VALUE;
+			//log.info(centers.size());
+			long maxdist=Long.MAX_VALUE;
 			int index=-1;
 			
-			int[] ints=new int[128];
-			IntWritable iw[]=new IntWritable[128];
+			long[] ints=new long[129];
+			LongWritable iw[]=new LongWritable[129];
 			
 			
 			String[] str=value.toString().split("\\s+");
 			
 			
 			for(int i=0;i<128;i++){
-				ints[i]=Integer.parseInt(str[i+3]);
-				iw[i]=new IntWritable(ints[i]);
+				ints[i]=Long.parseLong(str[i+3]);
+				iw[i]=new LongWritable(ints[i]);
 			}
 			
 			
@@ -118,9 +124,9 @@ public class HKM extends Configured implements Tool {
 			
 			
 			for(int i=pos*k;i<(pos+1)*k;i++){
-				int ans=0;
+				long ans=0;
 				for(int j=0;j<128;j++){
-					int q=centers.get(i)[j];
+					long q=centers.get(i)[j];
 					
 					if(q>ints[j])	ans+=q-ints[j];
 					else ans+=ints[j]-q;
@@ -131,34 +137,37 @@ public class HKM extends Configured implements Tool {
 				}
 			}
 			
-			IntArrayWritable aw=new IntArrayWritable();
+			iw[128]=new LongWritable(1);
+			
+			LongArrayWritable aw=new LongArrayWritable();
 			aw.set(iw);
 			context.write(new IntWritable(index),aw);
 		}
 		
 	}
 	
-	public static class Combiner extends Reducer<IntWritable,IntArrayWritable,IntWritable,IntArrayWritable>{
+	public static class Combiner extends Reducer<IntWritable,LongArrayWritable,IntWritable,LongArrayWritable>{
 		@Override
-		public void reduce(IntWritable key,Iterable<IntArrayWritable> values,Context context) throws IOException, InterruptedException{
+		public void reduce(IntWritable key,Iterable<LongArrayWritable> values,Context context) throws IOException, InterruptedException{
 			log.info("Start Combiner");
-			IntArrayWritable aw=new IntArrayWritable();
-			IntWritable[] ints=new IntWritable[129];
+			LongArrayWritable aw=new LongArrayWritable();
+			LongWritable[] ints=new LongWritable[129];
 			
-			int[] ans=new int[129];
+			long[] ans=new long[129];
 			
-			int cnt=0;
+			long cnt=0;
+		
 			while(values.iterator().hasNext()){
-				cnt++;
 				Writable[] b=values.iterator().next().get();
 				for(int i=0;i<128;i++){
-					int bv=((IntWritable) b[i]).get();
+					long bv=((LongWritable) b[i]).get();
 					ans[i]+=bv;
 				}
+				cnt+=((LongWritable) b[128]).get();
 			}
 			ans[128]=cnt;
 			
-			for(int i=0;i<129;i++)	ints[i]=new IntWritable(ans[i]);
+			for(int i=0;i<129;i++)	ints[i]=new LongWritable(ans[i]);
 			aw.set(ints);
 			context.write(key, aw);
 		}
@@ -166,17 +175,19 @@ public class HKM extends Configured implements Tool {
 	
 	
 	
-	public static class ClusterReducer extends Reducer<IntWritable,IntArrayWritable,IntWritable,Text>{
+	public static class ClusterReducer extends Reducer<IntWritable,LongArrayWritable,IntWritable,Text>{
 		@Override
-		public void reduce(IntWritable key,Iterable<IntArrayWritable> values,Context context) throws IOException, InterruptedException{
+		public void reduce(IntWritable key,Iterable<LongArrayWritable> values,Context context) throws IOException, InterruptedException{
 			log.info("Start Reducer");
-			int[] ans=new int[128];
-			int cnt=0;
+			long[] ans=new long[128];
+			long cnt=0;
+			
 			while(values.iterator().hasNext()){
 				Writable[] t=values.iterator().next().get();
-				for(int i=0;i<128;i++)	ans[i]+=((IntWritable) t[i]).get();
-				cnt+=((IntWritable) t[128]).get();
+				for(int i=0;i<128;i++)	ans[i]+=((LongWritable) t[i]).get();
+				cnt+=((LongWritable) t[128]).get();
 			}
+			
 			for(int i=0;i<128;i++) ans[i]=ans[i]/cnt;
 			
 			String str=String.valueOf(ans[0]);
@@ -191,9 +202,12 @@ public class HKM extends Configured implements Tool {
 	
 	@Override
 	public int run(String[] args) throws Exception{
+		for(int i=0;i<args.length;i++) System.out.println(args[i]);
 		Configuration conf=getConf();
 		FileSystem fs=FileSystem.get(conf);
 		Job job=Job.getInstance(conf,"Kmeans "+args[2]);
+		int k=conf.getInt("k", 10);
+		int level=conf.getInt("level",0);
 		
 		job.addCacheFile((new Path(args[1])).toUri());
 		
@@ -201,19 +215,19 @@ public class HKM extends Configured implements Tool {
 		job.setMapperClass(ClusterMapper.class);
 		job.setCombinerClass(Combiner.class);
 		job.setReducerClass(ClusterReducer.class);
+		
 		job.setMapOutputKeyClass(IntWritable.class);
-		job.setMapOutputValueClass(IntArrayWritable.class);
+		job.setMapOutputValueClass(LongArrayWritable.class);
 	
 		int cc=k;
 		for(int t=0;t<level-1;t++){
 			cc*=k;
 		}	
 		String o=OutputPrefix+"/indexd"+String.valueOf(level-1);
-		for(int i=0;i<cc;i++){
-			TextInputFormat.addInputPath(job, new Path(o+"/index"+String.valueOf(i)+"-r-00000"));
-		}
+	//	for(int i=0;i<cc;i++){
+			TextInputFormat.addInputPath(job, new Path(o+"/index-r-00000"));
+		//}
 		job.setInputFormatClass(TextInputFormat.class);
-		
 		
 		job.setOutputKeyClass(IntWritable.class);
 		job.setOutputValueClass(Text.class);
@@ -248,6 +262,7 @@ public class HKM extends Configured implements Tool {
 		}
 		Vector<int[]> oldcenters= ReadCenter(oldc,fs);
 		Vector<int[]> newcenters= ReadCenter(newc,fs);
+		int k=conf.getInt("k", 10);
 		int ans=0;
 		for(int i=0;i<k;i++){
 			for(int j=1;j<129;j++){
@@ -260,40 +275,67 @@ public class HKM extends Configured implements Tool {
 	
 	
 	
-	public static void GenNewCenterFile(Configuration conf,String[] args) throws IOException{
-		Path centerPath=new Path(CenterPrefix+String.valueOf(level));
+	public static int GenNewCenterFile(Configuration conf,String[] args) throws IOException{
+		log.info("Generate Center");
 		FileSystem fs=FileSystem.get(conf);
+		int k=conf.getInt("k", 10);
+		int level=conf.getInt("level", 0);
+		Path centerPath=new Path(CenterPrefix+String.valueOf(level));
 		int cc=k;
 		for(int t=0;t<level-1;t++){
 			cc*=k;
 		}
 		
+		int tot=0;
 		String o=OutputPrefix+"/indexd"+String.valueOf(level-1);
 		BufferedWriter bw=new BufferedWriter(new OutputStreamWriter(fs.create(centerPath,true)));
+		
+		
+		
+	//	for(int i=0;i<cc;i++){
+		BufferedReader br = new BufferedReader(new InputStreamReader(fs.open(new Path(o+"/index-r-00000"))));
+		String line;
+		
+		Map[] ha=new Map[cc];
 		for(int i=0;i<cc;i++){
-			BufferedReader br = new BufferedReader(new InputStreamReader(fs.open(new Path(o+"/index"+String.valueOf(i)+"-r-00000"))));
-			String line;
-			int cnt=0;
-			while((line=br.readLine()) != null){
+			ha[i]=new HashMap<Integer,String>();
+		}
+		
+		
+		while((line=br.readLine()) != null){
 				
 				String[] str = line.split("\\s+");
-				String ansStr=String.valueOf(i*k+cnt)+"\t0\t"+str[3];
+				int i=Integer.parseInt(str[0]);
+				if(ha[i].size()>=k)	continue;
+				
+				
+				String ansStr=String.valueOf(tot)+"\t0\t"+str[3];
+				String aStr="";
 				
 				for(int j=4;j<str.length;j++){
-					ansStr+=" "+str[j];
+					aStr+=" "+str[j];
 				}
-				bw.write(ansStr+"\n");
-				cnt++;
-				if(cnt==k)	break;
-			}
-			br.close();
+				//aStr.hashCode()
+				if(!ha[i].containsKey(aStr.hashCode())){
+					ha[i].put(aStr.hashCode(), ansStr+aStr+"\n");
+					//bw.write(ansStr+aStr+"\n");
+					
+					tot++;
+				}
 		}
+		
+		for(int i=0;i<cc;i++){
+			for(Map.Entry<Integer, String> entry:((HashMap<Integer,String>)ha[i]).entrySet()){
+				bw.write(entry.getValue());
+			}
+		}
+		br.close();
+		//}
 		bw.close();
+		return tot;
 		//String centerDir=OutputPrefix+"/indexd"+String.valueOf(level-1);
 	}
 	
-	
-	//public static int ChangeFile
 	
 	//arg[0] Input path
 	//arg[1] Center file path
@@ -306,23 +348,35 @@ public class HKM extends Configured implements Tool {
 	public static void main(String[] args) throws Exception{
 		log.info("Start HKM");
 		
+		Configuration conf=new Configuration();
 		
 		if(args.length>=4)	IterationLimit=Integer.parseInt(args[3]);
 		
-		if(args.length>=5) 	k=Integer.parseInt(args[4]);
+		int k=Integer.parseInt(args[4]);
+		if(args.length>=5){
+			conf.setInt("k", k);
+		}
 		
 		if(args.length>=6) MaxDepth=Integer.parseInt(args[5]);
 		
 		
-		Configuration conf=new Configuration();
 		FileSystem fs=FileSystem.get(conf);
 		
 		OutputPrefix=new String(args[2]);
 		CenterPrefix=new String(args[1]);
+
+		String[] s=new String[1];
+		s[0]=OutputPrefix;
+		conf.setStrings("OP", s);
+		conf.set("OutputP", OutputPrefix);
+	//	conf.setBoolean("ReachLeaf", false);
 		
 		int success=1;
+		int level;
+		int sz=k;
 		for(level=0;level<MaxDepth;level++){
-			if(ReachLeaf) break;
+			conf.setInt("level", level);
+		//	if(conf.getBoolean("ReachLeaf", true)) break;
 			if(level==0){
 				itr=0;
 				
@@ -340,7 +394,7 @@ public class HKM extends Configured implements Tool {
 					
 					//int dist=CheckDistance(conf, args);
 				//	log.info("Round "+itr+ " Diff: "+dist);
-					if(itr>1)	fs.delete(new Path(args[1]),true);
+					//if(itr>1)	fs.delete(new Path(args[1]),true);
 					args[1]=args[2]+"/part-r-00000";
 					
 				}while(itr<IterationLimit);
@@ -350,7 +404,9 @@ public class HKM extends Configured implements Tool {
 					//fs.delete((new Path(args[1])),true);
 				}
 			}else{
-				GenNewCenterFile(conf,args);
+				int gncf=GenNewCenterFile(conf,args);
+				sz*=k;
+				if(gncf<sz)	break;
 				itr=0;
 				args[1]=CenterPrefix+String.valueOf(level);
 				do{
@@ -365,10 +421,12 @@ public class HKM extends Configured implements Tool {
 					
 				//	int dist=CheckDistance(conf, args);
 				//	log.info("Round "+itr+ " Diff: "+dist);
-					if(itr>1)	fs.delete(new Path(args[1]),true);
+			//	if(itr>1)	fs.delete(new Path(args[1]),true);
+		//			log.info(arg0);
 					args[1]=args[2]+"/part-r-00000";
 					
 				}while(itr<IterationLimit);
+				log.info("Call build index");
 				if(success==1){
 					args[2]=OutputPrefix+"/indexd"+String.valueOf(level);
 					args[3]=String.valueOf(level);

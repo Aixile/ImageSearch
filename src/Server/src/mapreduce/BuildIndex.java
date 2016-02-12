@@ -29,7 +29,6 @@ import org.apache.hadoop.util.Tool;
 
 
 public class BuildIndex  extends Configured implements Tool  {
-	private static int k=10;
 	private static Log log=LogFactory.getLog(BuildIndex.class);
 	
 	
@@ -40,10 +39,12 @@ public class BuildIndex  extends Configured implements Tool  {
 	//	Vector<byte[]> centers=new Vector<byte[]>(); 
 		
 		Vector<int[]> centers=new Vector<int[]>();
+		int k;
 		@Override
 		public void setup(Context context) throws IOException{
 
 					log.info("Mapper setup start");
+					k=context.getConfiguration().getInt("k",10);
 					URI[] cache=context.getCacheFiles();
 					if(cache == null || cache.length <=0) System.exit(1);
 					Path cp=new Path(cache[0]);
@@ -71,10 +72,10 @@ public class BuildIndex  extends Configured implements Tool  {
 		
 		@Override
 		public void map(LongWritable key,BytesWritable value,Context context) throws IOException, InterruptedException{
-			log.info("Mapper start");
+		//	log.info("Mapper start");
 			byte[] b=value.getBytes();
 			
-			log.info(centers.size());
+		//	log.info(centers.size());
 			int maxdist=Integer.MAX_VALUE;
 			int index=-1;
 			
@@ -119,8 +120,10 @@ public class BuildIndex  extends Configured implements Tool  {
 	
 	public static class BuildIndexReducer extends Reducer<IntWritable,IntArrayWritable,IntWritable,Text>{
 		private MultipleOutputs<IntWritable,Text> mos;	
+		int k;
 		@Override
 		public void setup(Context context) {
+			k=context.getConfiguration().getInt("k",10);
 			mos=new MultipleOutputs<IntWritable,Text>(context);
 		} 
 		 
@@ -146,9 +149,12 @@ public class BuildIndex  extends Configured implements Tool  {
 				}
 				//cnt+=((IntWritable) t[128]).get();
 				cnt++;
-				mos.write("index"+key.toString(), key, new Text(String.valueOf(cnt)+" "+str2+" "+str));
+				mos.write("index", key, new Text(String.valueOf(cnt)+" "+str2+" "+str));
 			}
-			if(cnt<k)	HKM.ReachLeaf=true;
+			if(cnt<k){
+				
+				//	HKM.ReachLeaf=true;
+			}
 			context.write(key, new Text(String.valueOf(cnt)));
 		}	
 		
@@ -161,10 +167,11 @@ public class BuildIndex  extends Configured implements Tool  {
 
 	@Override
 	public int run(String[] args) throws Exception{
+	for(int i=0;i<args.length;i++) System.out.println(args[i]);
 		Configuration conf=getConf();
 		FileSystem fs=FileSystem.get(conf);
 		Job job=Job.getInstance(conf,"BuildIndex "+args[2]);
-		if(args.length>=5) 	k=Integer.parseInt(args[4]);
+		int k=conf.getInt("k",10);
 		
 		
 		job.addCacheFile((new Path(args[1])).toUri());
@@ -181,9 +188,11 @@ public class BuildIndex  extends Configured implements Tool  {
 		CustomFixedLengthInputFormat.addInputPath(job, new Path(args[0]));
 		job.setInputFormatClass(CustomFixedLengthInputFormat.class);
 		FileOutputFormat.setOutputPath(job, new Path(args[2]));
+	/*	
 		for(int i=0;i<k;i++){
-			MultipleOutputs.addNamedOutput(job,"index"+String.valueOf(i), TextOutputFormat.class, IntWritable.class, Text.class);
-		}
+MultipleOutputs.addNamedOutput(job,"index"+String.valueOf(i), TextOutputFormat.class, IntWritable.class, Text.class);
+		}*/
+		MultipleOutputs.addNamedOutput(job,"index", TextOutputFormat.class, IntWritable.class, Text.class);
 		
 		return job.waitForCompletion(true)?0:1;
 		

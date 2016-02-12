@@ -2,9 +2,11 @@ package netthrow;
 
 import java.io.*;
 import java.net.*;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.Vector;
+import java.util.stream.Collectors;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -107,12 +109,32 @@ public class NetThrow {
 		}	
 		int maxA=0;
 		String ans="";
+		TreeMap<Integer,Vector<String>> tm2=new TreeMap<Integer,Vector<String>> ();
+		//Vector<Integer> avc=new Vector<Integer>();
+	//	Vector<String> asc=new Vector<String>();
+		
 		for(Map.Entry<String,Integer> entry :tm.entrySet()){
-			if(entry.getValue()>maxA){
-				ans=entry.getKey();
-				maxA=entry.getValue();
+			if(entry.getValue()==1)	continue;
+			if(!tm2.containsKey(entry.getValue())){
+				tm2.put(entry.getValue(), new Vector<String>());
+				tm2.get(entry.getValue()).add(entry.getKey());
+			}else{
+				tm2.get(entry.getValue()).add(entry.getKey());
 			}
 		}
+		int cnt=0;
+		ArrayList<Integer> keys = new ArrayList<Integer>(tm2.keySet());
+	    for(int i=keys.size()-1; i>=0;i--){
+			if(cnt>=10)	break;
+			Vector<String> vs=tm2.get(keys.get(i));
+			for(String s:vs){
+				ans=ans+s+":"+String.valueOf(keys.get(i))+" ";
+				cnt++;
+				if(cnt>=10)	break;
+			}
+	    	
+	    }
+
 		return ans;
     }
 
@@ -138,7 +160,10 @@ public class NetThrow {
         int success=ToolRunner.run(conf, new QueryProcessor(),args);
         log.info(success);
         if(success==0){
-        	log.info(CheckVote(tmpoutdir, fs));
+        	String ans=CheckVote(tmpoutdir, fs);
+        	log.info(ans);
+        	System.out.println(ans);
+        	connection.SendString(ans+"\n");
         }
     }
 }

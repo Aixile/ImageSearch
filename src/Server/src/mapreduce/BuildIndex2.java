@@ -27,12 +27,12 @@ import org.apache.hadoop.mapreduce.Mapper.Context;
 import org.apache.hadoop.mapreduce.lib.input.TextInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.util.Tool;
+import org.apache.hadoop.util.ToolRunner;
 
 
 public class BuildIndex2  extends Configured implements Tool  {
-	private static int k=10;
 	private static Log log=LogFactory.getLog(BuildIndex2.class);
-	private static int level=10;
+	//private static int level=10;
 	
 	
 	public static class ClusterMapper extends Mapper<LongWritable,Text,IntWritable,IntArrayWritable>{
@@ -41,11 +41,14 @@ public class BuildIndex2  extends Configured implements Tool  {
 	//	Vector<byte[]> centers=new Vector<byte[]>(); 
 		
 		Vector<int[]> centers=new Vector<int[]>();
+		int k;
 		@Override
 		public void setup(Context context) throws IOException{
 
 					log.info("Mapper setup start");
 					URI[] cache=context.getCacheFiles();
+					k=context.getConfiguration().getInt("k",10);
+					int level=context.getConfiguration().getInt("level", 0);
 					if(cache == null || cache.length <=0) System.exit(1);
 					Path cp=new Path(cache[0]);
 					
@@ -75,10 +78,10 @@ public class BuildIndex2  extends Configured implements Tool  {
 		
 		@Override
 		public void map(LongWritable key,Text value,Context context) throws IOException, InterruptedException{
-			log.info("Mapper start");
+	//		log.info("Mapper start");
 			byte[] b=value.getBytes();
 			
-			log.info(centers.size());
+			//log.info(centers.size());
 			int maxdist=Integer.MAX_VALUE;
 			int index=-1;
 			
@@ -135,9 +138,11 @@ public class BuildIndex2  extends Configured implements Tool  {
 	
 	public static class BuildIndexReducer extends Reducer<IntWritable,IntArrayWritable,IntWritable,Text>{
 		private MultipleOutputs<IntWritable,Text> mos;	
+		int k;
 		@Override
 		public void setup(Context context) {
 			mos=new MultipleOutputs<IntWritable,Text>(context);
+			k=context.getConfiguration().getInt("k", 10);
 		} 
 		 
 		@Override
@@ -162,9 +167,12 @@ public class BuildIndex2  extends Configured implements Tool  {
 				}
 				//cnt+=((IntWritable) t[128]).get();
 				cnt++;
-				mos.write("index"+key.toString(), key, new Text(String.valueOf(cnt)+" "+str2+" "+str));
+				mos.write("index", key, new Text(String.valueOf(cnt)+" "+str2+" "+str));
 			}
-			if(cnt<k)	HKM.ReachLeaf=true;
+			//if(cnt<k){
+			//	context.getConfiguration().setBoolean("ReachLeaf", true);
+		//		xxHKM.ReachLeaf=true;
+			//}
 			context.write(key, new Text(String.valueOf(cnt)));
 		}	
 		
@@ -177,13 +185,15 @@ public class BuildIndex2  extends Configured implements Tool  {
 
 	@Override
 	public int run(String[] args) throws Exception{
+		
+	for(int i=0;i<args.length;i++) System.out.println(args[i]);
 		Configuration conf=getConf();
 		FileSystem fs=FileSystem.get(conf);
 		Job job=Job.getInstance(conf,"BuildIndex2 "+args[2]);
 		
-		level=Integer.parseInt(args[3]);
-		
-		if(args.length>=5) 	k=Integer.parseInt(args[4]);
+		int level=Integer.parseInt(args[3]);
+		conf.setInt("level", level);
+		int k=conf.getInt("k",10);	
 		
 		
 		job.addCacheFile((new Path(args[1])).toUri());
@@ -200,10 +210,13 @@ public class BuildIndex2  extends Configured implements Tool  {
 		for(int t=0;t<level-1;t++){
 			cc*=k;
 		}	
-		String o=HKM.OutputPrefix+"/indexd"+String.valueOf(level-1);
-		for(int i=0;i<cc;i++){
-			TextInputFormat.addInputPath(job, new Path(o+"/index"+String.valueOf(i)+"-r-00000"));
-		}
+		String OutputPrefixA[]=conf.getStrings("OP");
+		String OutputPrefix=OutputPrefixA[0];
+		String o=OutputPrefix+"/indexd"+String.valueOf(level-1);
+		
+		//for(int i=0;i<cc;i++){
+			TextInputFormat.addInputPath(job, new Path(o+"/index-r-00000"));
+	//	}
 		job.setInputFormatClass(TextInputFormat.class);
 		
 		
@@ -215,11 +228,98 @@ public class BuildIndex2  extends Configured implements Tool  {
 		CustomFixedLengthInputFormat.addInputPath(job, new Path(args[0]));
 		job.setInputFormatClass(CustomFixedLengthInputFormat.class);*/
 		FileOutputFormat.setOutputPath(job, new Path(args[2]));
-		for(int i=0;i<cc*k;i++){
-			MultipleOutputs.addNamedOutput(job,"index"+String.valueOf(i), TextOutputFormat.class, IntWritable.class, Text.class);
-		}
+		//for(int i=0;i<cc*k;i++){
+			MultipleOutputs.addNamedOutput(job,"index", TextOutputFormat.class, IntWritable.class, Text.class);
+	//	}
 		
 		return job.waitForCompletion(true)?0:1;
-		
 	}
+/*
+	public static void main(String[] args) throws Exception{
+		log.info("Start HKM");
+		
+		Configuration conf=new Configuration();
+		
+		int k=Integer.parseInt(args[4]);
+		if(args.length>=5){
+			conf.setInt("k", k);
+		}
+		
+		FileSystem fs=FileSystem.get(conf);
+		
+		String OutputPrefix=new String(args[2]);
+		String[] s=new String[1];
+		s[0]=OutputPrefix;
+		conf.setStrings("OP", s);
+		conf.set("OutputP", OutputPrefix);
+	//	conf.setBoolean("ReachLeaf", false);
+		
+		int success=1;
+		int level;
+		int sz=k;
+		for(level=0;level<MaxDepth;level++){
+			conf.setInt("level", level);
+		//	if(conf.getBoolean("ReachLeaf", true)) break;
+			if(level==0){
+				itr=0;
+				
+				args[1]=CenterPrefix+String.valueOf(level);
+				
+				do{
+					itr++;
+					args[2]=OutputPrefix+"/d"+String.valueOf(level)+"r"+String.valueOf(itr);
+					log.info("Round "+String.valueOf(itr)+" starting");
+					success^=ToolRunner.run(conf, new KMeans(),args);
+					if(success==0){
+						log.info("Failed in Round "+itr);
+						break;
+					}
+					
+					//int dist=CheckDistance(conf, args);
+				//	log.info("Round "+itr+ " Diff: "+dist);
+					//if(itr>1)	fs.delete(new Path(args[1]),true);
+					args[1]=args[2]+"/part-r-00000";
+					
+				}while(itr<IterationLimit);
+				if(success==1){
+					args[2]=OutputPrefix+"/indexd"+String.valueOf(level);
+					ToolRunner.run(conf, new BuildIndex(),args);
+					//fs.delete((new Path(args[1])),true);
+				}
+			}else{
+				int gncf=GenNewCenterFile(conf,args);
+				sz*=k;
+				if(gncf<sz)	break;
+				itr=0;
+				args[1]=CenterPrefix+String.valueOf(level);
+				do{
+					itr++;
+					args[2]=OutputPrefix+"/d"+String.valueOf(level)+"r"+String.valueOf(itr);
+					log.info("Round "+String.valueOf(itr)+" starting");
+					success^=ToolRunner.run(conf, new HKM(),args);
+					if(success==0){
+						log.info("Failed in Round "+itr);
+						break;
+					}
+					
+				//	int dist=CheckDistance(conf, args);
+				//	log.info("Round "+itr+ " Diff: "+dist);
+			//	if(itr>1)	fs.delete(new Path(args[1]),true);
+		//			log.info(arg0);
+					args[1]=args[2]+"/part-r-00000";
+					
+				}while(itr<IterationLimit);
+				log.info("Call build index");
+				if(success==1){
+					args[2]=OutputPrefix+"/indexd"+String.valueOf(level);
+					args[3]=String.valueOf(level);
+					ToolRunner.run(conf, new BuildIndex2(),args);
+				//	fs.delete((new Path(args[1])),true);
+				}
+			}
+		}
+	}
+	*/
+
+	
 }

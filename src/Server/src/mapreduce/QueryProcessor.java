@@ -3,11 +3,14 @@ package mapreduce;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.net.URI;
 import java.util.Vector;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -34,23 +37,30 @@ import netthrow.NetThrow;
 public class QueryProcessor extends Configured implements Tool {
 	
 	public static Vector<Vector<int[]>>  centers;
-	public static HashMap<Integer, Vector<int[]>>  dataMap;
+//	public static HashMap<Integer, Vector<int[]>>  dataMap;
 	
-	
+/*	
 	public static int IterationLimit=6;
 	public static String InputPrefix="";
 	public static String CenterPrefix="";
 	public static String OutputPrefix="";
-	public static String HDFSTmpPath="";
+
 	public static int MaxDepth=2;
 	public static int k=10;
 	public static int VoteLimit=10;
+	*/
+	
+	public static String HDFSTmpPath="";
 	
 	private static Log log=LogFactory.getLog(QueryProcessor.class);	
-	private static void init(FileSystem fs) throws IllegalArgumentException, IOException{
-		
+	
+	private static Vector<Vector<int[]>>  init(FileSystem fs,Configuration conf) throws IllegalArgumentException, IOException{
+		int MaxDepth=conf.getInt("MaxDepth",3);
+		int IterationLimit=conf.getInt("IterationLimit",20);
+		String[] args=conf.getStrings("ARGS");
+		String InputPrefix=new String(args[0]);
 			//for(int i=0;i<MaxDepth;i++)	centers.add(new Vector<int[]>());
-		centers=new Vector<Vector<int[]>>() ;
+		Vector<Vector<int[]>>  centers=new Vector<Vector<int[]>>() ;
 		for(int i=0;i<MaxDepth;i++){
 			Vector<int[]> ans=new Vector<int[]>();
 			
@@ -69,9 +79,55 @@ public class QueryProcessor extends Configured implements Tool {
 			centers.add(ans);
 			log.info("Depth:"+String.valueOf(i)+" Size: "+String.valueOf(ans.size()));
 		}
+		return centers;
 	}
 	
 	public static class IndexFileMapper extends Mapper<LongWritable,Text,IntWritable,Text>{
+		
+		public  HashMap<Integer, Vector<int[]>>  dataMap;
+		
+		@Override
+		public void setup(Context context) throws IOException{
+		
+			URI[] cache=context.getCacheFiles();
+			FileSystem fs=FileSystem.get(context.getConfiguration());
+			if(cache == null || cache.length <=0) System.exit(1);
+		//	String[] idxAll2=context.getConfiguration().getStrings("IndexAll");
+			String idxAll=context.getConfiguration().get("idx");
+			String[] vidx=idxAll.split(";");
+			
+			dataMap=new HashMap<Integer, Vector<int[]>>(); 
+			
+			Path cp=new Path(cache[0]);
+			BufferedReader br = new BufferedReader(new InputStreamReader(fs.open(cp)));
+			String line;
+			int cnt=0;
+			
+			
+			
+			while((line=br.readLine()) != null){
+				String[] str = line.split("\\s+");
+				int[] t=new int[130];
+				for(int i=2;i<str.length;i++){
+					t[i-2]=Integer.parseInt(str[i]);
+				}
+				
+				t[128]=Integer.parseInt(str[0]);
+				String[] idx=vidx[cnt].split("\\s+");
+				for(String i:idx){
+					int idxi=Integer.parseInt(i);
+					if(!dataMap.containsKey(idxi)){
+						dataMap.put(idxi, new Vector<int[]>());
+						dataMap.get(idxi).add(t);
+					}else{
+						dataMap.get(idxi).add(t);
+					}	
+				}
+				cnt++;
+			}
+			br.close();
+		}
+		
 		@Override
 		public void map(LongWritable key,Text value,Context context) throws IOException, InterruptedException{
 			log.info("Mapper start");
@@ -101,6 +157,15 @@ public class QueryProcessor extends Configured implements Tool {
 	}
 	
 	public static class VoteReducer extends Reducer<IntWritable,Text,IntWritable,Text>{
+		int VoteLimit;
+		@Override
+		public void setup(Context context) throws IOException{
+
+					log.info("VoteReducer setup start");
+					VoteLimit=context.getConfiguration().getInt("VoteLimit",10);
+					
+		}
+		
 		@Override
 		public void reduce(IntWritable key,Iterable<Text> values,Context context) throws IOException, InterruptedException{
 			log.info("VoteReducer start");
@@ -133,40 +198,56 @@ public class QueryProcessor extends Configured implements Tool {
 	}
 	
 	
-	public static int GetIndexID(int[] v){
-		int at=0;
-		log.info(centers.size());
+	public static Vector<Integer> GetIndexID(int[] v,Configuration conf){
+		//int at=0;
+		//log.info(centers.size());
+		int MaxDepth=conf.getInt("MaxDepth",3);
+		int k=conf.getInt("k",3);
+		
+		Vector<Integer> buf=new Vector<Integer>();
+		buf.add(0);
 		
 		for(int i=0;i<MaxDepth;i++){
-			at*=k;
 			
-			log.info(centers.get(i).size());
-			int mindist=Integer.MAX_VALUE;
-			int index=-1;
-			for(int j=at+0;j<at+k;j++){
-				
-				int ans=0;
-				for(int d=0;d<128;d++){
-					int q=centers.get(i).get(j)[d];
-					ans+=Math.abs(q-v[d]);
+			TreeMap<Integer, TreeSet<Integer>> tm=new TreeMap<Integer, TreeSet<Integer>>();
+			for(int t=0;t<buf.size();t++){
+				buf.set(t, buf.get(t)*k);
+				for(int j=buf.get(t)+0;j<buf.get(t)+k;j++){
+					int ans=0;
+					for(int d=0;d<128;d++){
+						int q=centers.get(i).get(j)[d];
+						ans+=Math.abs(q-v[d]);
+					}
+					if(!tm.containsKey(ans)){
+						tm.put(ans, new TreeSet<Integer>() );
+						tm.get(ans).add(j);
+					}else{
+						tm.get(ans).add(j);
+					}
 				}
-				if(ans<mindist){
-					index=j;
-					mindist=ans;
-				}	
-				
-				
 			}
-			at=index;
-			log.info("At "+String.valueOf(at));
+			buf.clear();
+			int cnt=0;
+			for(Map.Entry<Integer,TreeSet<Integer>> entry:tm.entrySet()){
+				if(cnt>=1) break;
+				TreeSet<Integer> ts=entry.getValue();
+				for(Integer s:ts){
+					buf.add(s);
+					cnt++;
+					if(cnt>=1) break;
+				}
+			}
 		}
-		return at;
+		return buf;
 	}
 	
-	public static void ReadQueryData(Path p,FileSystem fs,Job job, String opath) throws IOException{
+	public static void ReadQueryData(Path p,FileSystem fs,Job job, String opath,Configuration conf) throws IOException{
 		BufferedReader br = new BufferedReader(new InputStreamReader(fs.open(p)));
+		HashMap<Integer, Integer>  dataMap=new HashMap<Integer,Integer> ();
 		
 		String line;
+		String idxAll="";
+		
 		while((line=br.readLine()) != null){
 			String[] str = line.split("\\s+");
 			int[] t=new int[130];
@@ -176,18 +257,30 @@ public class QueryProcessor extends Configured implements Tool {
 			
 			t[128]=Integer.parseInt(str[0]);
 			
-			int idx=GetIndexID(t);
-			log.info(idx);
-			if(!dataMap.containsKey(idx)){
-				dataMap.put(idx, new Vector<int[]>());
-				dataMap.get(idx).add(t);
+			//int idx=GetIndexID(t,conf);
+			Vector<Integer> vidx=GetIndexID(t,conf);
+			for(Integer idx:vidx){
+				idxAll=idxAll+String.valueOf(idx)+" ";
+				if(!dataMap.containsKey(idx)){
+					dataMap.put(idx, 1);
+			//		dataMap.get(idx).add(t);
 
-				TextInputFormat.addInputPath(job, new Path(opath+"/index"+String.valueOf(idx)+"-r-00000"));
-			}else{
-				dataMap.get(idx).add(t);
+					TextInputFormat.addInputPath(job, new Path(opath+"/idx"+String.valueOf(idx)));
+				}	
 			}
+			idxAll=idxAll+";";
+			
+			/*else{
+				dataMap.get(idx).add(t);
+			}*/
 		}
 		
+		//String[] idxAll2=new String[2];
+	//	idxAll2[0]=idxAll;
+		job.getConfiguration().set("idx",idxAll);
+		System.out.println(idxAll);
+		
+		//System.out.println(conf.get("idx"));
 	}
 	
 	//args[0] Query File Path
@@ -197,10 +290,19 @@ public class QueryProcessor extends Configured implements Tool {
 	public int run(String[] args) throws Exception{
 		Configuration conf=getConf();
 		FileSystem fs=FileSystem.get(conf);	
+		if(centers==null){
+			centers=init(fs,conf);
+		}
 		
-		//init(fs);
-		dataMap=new HashMap<Integer, Vector<int[]>> ();
+		int MaxDepth=conf.getInt("MaxDepth",3);
+	//	int IterationLimit=conf.getInt("IterationLimit",20);
+		String[] argsProgram=conf.getStrings("ARGS");
+		String InputPrefix=new String(argsProgram[0]);
+	
 		Job job=Job.getInstance(conf,"Query Processor: ");
+		
+		
+	//	dataMap=new HashMap<Integer, Vector<int[]>> ();
 		
 		job.setJarByClass(QueryProcessor.class);
 		job.setMapperClass(IndexFileMapper.class);
@@ -208,12 +310,16 @@ public class QueryProcessor extends Configured implements Tool {
 		job.setMapOutputKeyClass(IntWritable.class);
 		job.setMapOutputValueClass(Text.class);
 		
-		ReadQueryData(new Path(args[0]), fs, job, InputPrefix+"/indexd"+String.valueOf(MaxDepth-1));
+		job.addCacheFile((new Path(args[0])).toUri());
+		
+		ReadQueryData(new Path(args[0]), fs, job, InputPrefix+"/indexd"+String.valueOf(MaxDepth-1),conf);
 		job.setInputFormatClass(TextInputFormat.class);
 			
 		job.setOutputKeyClass(IntWritable.class);
 		job.setOutputValueClass(Text.class);
 		FileOutputFormat.setOutputPath(job, new Path(args[1]));
+		
+		
 		
 		return job.waitForCompletion(true)?0:1;
 	}
@@ -231,20 +337,25 @@ public class QueryProcessor extends Configured implements Tool {
 	//args[7] Vote Limit
 	
 	public static void main(String[] args) throws Exception{
-		InputPrefix=new String(args[0]);
+		/*InputPrefix=new String(args[0]);
 		CenterPrefix=new String(args[1]);
 		OutputPrefix=new String(args[2]);
 		k=Integer.parseInt(args[3]);
-		MaxDepth=Integer.parseInt(args[4]);
-		IterationLimit=Integer.parseInt(args[5]);
-		HDFSTmpPath=new String(args[6]);
-		VoteLimit=Integer.parseInt(args[7]);
 		
+		IterationLimit=Integer.parseInt(args[5]);
+
+		VoteLimit=Integer.parseInt(args[7]);
+		*/
+		HDFSTmpPath=new String(args[6]);
 		
 		Configuration conf=new Configuration();
-		FileSystem fs=FileSystem.get(conf);
+		conf.setStrings("ARGS", args);
+		conf.setInt("k", Integer.parseInt(args[3]));
+		conf.setInt("MaxDepth", Integer.parseInt(args[4]));
+		conf.setInt("IterationLimit", Integer.parseInt(args[5]));
+		conf.setInt("VoteLimit", Integer.parseInt(args[7]));
 		
-		init(fs);
+		//init(fs);
 		
 		
         NetThrow netThrow = new NetThrow(conf);
